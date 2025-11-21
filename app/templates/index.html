@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Climate Analytics - Главная</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+</head>
+<body>
+    <nav class="navbar">
+        <div class="container">
+            <h1>🌍 Climate Analytics</h1>
+            <ul class="nav-links">
+                <li><a href="/" class="active">Главная</a></li>
+                <li><a href="/dashboard">Интерактивный дашборд</a></li>
+            </ul>
+        </div>
+    </nav>
+
+    <div class="container">
+        <header class="page-header">
+            <h2>Аналитика изменения климата</h2>
+            <p>Система бизнес-аналитики для анализа климатических данных</p>
+        </header>
+
+        <!-- KPI Блоки -->
+        <section class="kpi-section">
+            <h3>Ключевые показатели (KPI)</h3>
+            <div class="kpi-grid">
+                <div class="kpi-card">
+                    <div class="kpi-icon">🌡️</div>
+                    <div class="kpi-content">
+                        <h4>Средняя температура</h4>
+                        <p class="kpi-value" id="kpi-temp">-</p>
+                        <span class="kpi-unit">°C</span>
+                    </div>
+                </div>
+                <div class="kpi-card">
+                    <div class="kpi-icon">💧</div>
+                    <div class="kpi-content">
+                        <h4>Осадки</h4>
+                        <p class="kpi-value" id="kpi-precip">-</p>
+                        <span class="kpi-unit">мм</span>
+                    </div>
+                </div>
+                <div class="kpi-card">
+                    <div class="kpi-icon">⚡</div>
+                    <div class="kpi-content">
+                        <h4>Экстремальные события</h4>
+                        <p class="kpi-value" id="kpi-events">-</p>
+                        <span class="kpi-unit">событий</span>
+                    </div>
+                </div>
+                <div class="kpi-card">
+                    <div class="kpi-icon">🏭</div>
+                    <div class="kpi-content">
+                        <h4>Уровень CO₂</h4>
+                        <p class="kpi-value" id="kpi-co2">-</p>
+                        <span class="kpi-unit">ppm</span>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Descriptive Analytics -->
+        <section class="analytics-section">
+            <h3>Descriptive Analytics</h3>
+            
+            <div class="chart-row">
+                <div class="chart-container">
+                    <h4>Изменение средней температуры по годам</h4>
+                    <div id="temperature-chart"></div>
+                </div>
+            </div>
+
+            <div class="chart-row">
+                <div class="chart-container">
+                    <h4>Изменение осадков по годам</h4>
+                    <div id="precipitation-chart"></div>
+                </div>
+            </div>
+
+            <div class="chart-row">
+                <div class="chart-container half-width">
+                    <h4>Экстремальные события по регионам</h4>
+                    <div id="extreme-events-chart"></div>
+                </div>
+                <div class="chart-container half-width">
+                    <h4>Распределение температур (Box Plot)</h4>
+                    <div id="boxplot-chart"></div>
+                </div>
+            </div>
+
+            <div class="chart-row">
+                <div class="chart-container">
+                    <h4>Распределение температуры по странам</h4>
+                    <div id="temperature-map-chart"></div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Predictive Analytics -->
+        <section class="analytics-section">
+            <h3>Predictive Analytics</h3>
+            
+            <div class="chart-row">
+                <div class="chart-container">
+                    <h4>Температура: фактические данные и прогноз</h4>
+                    <div id="predictive-chart"></div>
+                </div>
+            </div>
+
+            <div class="chart-row">
+                <div class="chart-container">
+                    <h4>Корреляция: Температура vs CO₂</h4>
+                    <div id="correlation-chart"></div>
+                </div>
+            </div>
+        </section>
+    </div>
+
+    <footer class="footer">
+        <div class="container">
+            <p>&copy; 2024 Climate Analytics Project. Учебный проект для курсовой работы.</p>
+        </div>
+    </footer>
+
+    <script src="{{ url_for('static', filename='js/index.js') }}"></script>
+</body>
+</html>

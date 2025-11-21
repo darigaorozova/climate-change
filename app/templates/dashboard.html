@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Climate Analytics - Интерактивный дашборд</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+</head>
+<body>
+    <nav class="navbar">
+        <div class="container">
+            <h1>🌍 Climate Analytics</h1>
+            <ul class="nav-links">
+                <li><a href="/">Главная</a></li>
+                <li><a href="/dashboard" class="active">Интерактивный дашборд</a></li>
+            </ul>
+        </div>
+    </nav>
+
+    <div class="container">
+        <header class="page-header">
+            <h2>Интерактивный дашборд</h2>
+            <p>Drill-down анализ, фильтрация и агрегация данных</p>
+        </header>
+
+        <!-- Фильтры -->
+        <section class="filters-section">
+            <h3>Фильтры</h3>
+            <div class="filter-controls">
+                <div class="filter-group">
+                    <label for="start-year">Год начала:</label>
+                    <input type="number" id="start-year" min="2000" max="2024" value="2000">
+                </div>
+                <div class="filter-group">
+                    <label for="end-year">Год окончания:</label>
+                    <input type="number" id="end-year" min="2000" max="2024" value="2024">
+                </div>
+                <button class="btn-primary" onclick="applyFilters()">Применить фильтры</button>
+                <button class="btn-secondary" onclick="resetFilters()">Сбросить</button>
+            </div>
+        </section>
+
+        <!-- Агрегированные данные -->
+        <section class="summary-section">
+            <h3>Сводка за период</h3>
+            <div class="summary-grid">
+                <div class="summary-card">
+                    <h4>Средняя температура</h4>
+                    <p class="summary-value" id="summary-temp">-</p>
+                </div>
+                <div class="summary-card">
+                    <h4>Общие осадки</h4>
+                    <p class="summary-value" id="summary-precip">-</p>
+                </div>
+                <div class="summary-card">
+                    <h4>Средний CO₂</h4>
+                    <p class="summary-value" id="summary-co2">-</p>
+                </div>
+            </div>
+        </section>
+
+        <!-- Интерактивные графики -->
+        <section class="dashboard-section">
+            <div class="chart-row">
+                <div class="chart-container">
+                    <h4>Температура (с возможностью drill-down)</h4>
+                    <div id="dashboard-temp-chart"></div>
+                </div>
+            </div>
+
+            <div class="chart-row">
+                <div class="chart-container">
+                    <h4>Осадки (с возможностью drill-down)</h4>
+                    <div id="dashboard-precip-chart"></div>
+                </div>
+            </div>
+
+            <div class="chart-row">
+                <div class="chart-container">
+                    <h4>CO₂ уровень (с возможностью drill-down)</h4>
+                    <div id="dashboard-co2-chart"></div>
+                </div>
+            </div>
+
+            <div class="chart-row">
+                <div class="chart-container half-width">
+                    <h4>Сравнение метрик</h4>
+                    <div id="comparison-chart"></div>
+                </div>
+                <div class="chart-container half-width">
+                    <h4>Тренды</h4>
+                    <div id="trends-chart"></div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Roll-up анализ -->
+        <section class="rollup-section">
+            <h3>Roll-up анализ (по годам, по регионам)</h3>
+            <div class="chart-row">
+                <div class="chart-container">
+                    <h4>Агрегация по годам</h4>
+                    <div id="rollup-year-chart"></div>
+                </div>
+            </div>
+        </section>
+    </div>
+
+    <footer class="footer">
+        <div class="container">
+            <p>&copy; 2024 Climate Analytics Project. Учебный проект для курсовой работы.</p>
+        </div>
+    </footer>
+
+    <script src="{{ url_for('static', filename='js/dashboard.js') }}"></script>
+</body>
+</html>
+
