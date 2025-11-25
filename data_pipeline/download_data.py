@@ -1,44 +1,46 @@
-# File: update_daily_data.py
+# File: download_daily_data.py
 # Этот скрипт предназначен для ежедневного запуска.
-# Он скачивает последние доступные данные ERA5, пропущенные за предыдущие дни.
+# Он скачивает последние доступные данные ERA5, которые могли быть пропущены.
 
 import cdsapi
 import os
 from datetime import date, timedelta
 from pathlib import Path
 
-
-# --- Настройки ---
-# Директория для сохранения данных
-OUTPUT_DIR = './data/'
-# Задержка в появлении данных ERA5 (обычно 5-7 дней)
+# --- НАСТРОЙКИ ---
+# Директория для сохранения сырых данных
+OUTPUT_DIR = './data/raw/'
+# Задержка в появлении данных ERA5 в днях (обычно 5-7)
 DATA_LAG_DAYS = 5
-# Сколько дней назад проверять на случай, если скрипт не запускался
+# Сколько дней в прошлом проверять на случай, если скрипт долго не запускался
 DAYS_TO_CHECK_BACK = 15 
 
-# Параметры запроса
-AREA = [44.5, 68.0, 38.0, 82.0] # [Север, Запад, Юг, Восток]
-GRID = [0.25, 0.25]
+# --- ПАРАМЕТРЫ ЗАПРОСА (из вашего примера) ---
+AREA = [44.5, 68, 38, 82] # [Север, Запад, Юг, Восток]
 VARIABLES = [
-    '10m_u_component_of_wind', '10m_v_component_of_wind', '2m_dewpoint_temperature',
-    '2m_temperature', 'mean_sea_level_pressure', 'total_cloud_cover',
-    'total_precipitation',
-    'maximum_2m_temperature_since_previous_post_processing',
-    'minimum_2m_temperature_since_previous_post_processing',
-    'surface_solar_radiation_downwards',
+    "10m_u_component_of_wind",
+    "10m_v_component_of_wind",
+    "2m_dewpoint_temperature",
+    "2m_temperature",
+    "mean_sea_level_pressure",
+    "total_precipitation",
+    "maximum_2m_temperature_since_previous_post_processing",
+    "minimum_2m_temperature_since_previous_post_processing",
+    "mean_surface_downward_short_wave_radiation_flux", # Аналог "mean surface downward short wave radiation flux"
+    "total_cloud_cover"
 ]
-# --- Конец настроек ---
+# --- КОНЕЦ НАСТРОЕК ---
 
 
 def download_single_day(target_date: date):
     """
     Формирует запрос и скачивает данные за один конкретный день.
     """
-    # Формируем имя файла, например: ./data/era5_2024-02-25.nc
+    # Имя файла будет отражать дату, например: ./data/raw/era5_2024-03-10.nc
     target_filename = f"era5_{target_date.strftime('%Y-%m-%d')}.nc"
     target_filepath = Path(OUTPUT_DIR) / target_filename
     
-    # --- КЛЮЧЕВАЯ ПРОВЕРКА: Если файл уже существует, ничего не делаем ---
+    # КЛЮЧЕВАЯ ПРОВЕРКА: Если файл с такой датой уже существует, ничего не делаем.
     if target_filepath.exists():
         print(f"Файл {target_filename} уже существует. Пропускаем.")
         return
@@ -47,41 +49,40 @@ def download_single_day(target_date: date):
     
     try:
         c = cdsapi.Client()
-        c.retrieve(
-            'reanalysis-era5-single-levels',
-            {
-                'product_type': 'reanalysis',
-                'format': 'netcdf',
-                'variable': VARIABLES,
-                'year': str(target_date.year),
-                'month': f'{target_date.month:02d}',
-                'day': f'{target_date.day:02d}',
-                'time': [f'{h:02d}:00' for h in range(24)],
-                'area': AREA,
-                'grid': GRID,
-            },
-            str(target_filepath) # API требует путь в виде строки
-        )
+        
+        # Формируем запрос на основе нашего шаблона
+        request = {
+            "product_type": "reanalysis",
+            "format": "netcdf", # Мы просим сразу NetCDF, без zip-архива
+            "variable": VARIABLES,
+            "year": str(target_date.year),
+            "month": f'{target_date.month:02d}',
+            "day": f'{target_date.day:02d}',
+            "time": [f'{h:02d}:00' for h in range(24)],
+            "area": AREA,
+            "grid": ["0.25", "0.25"] # Стандартное разрешение для ERA5
+        }
+        
+        c.retrieve("reanalysis-era5-single-levels", request, str(target_filepath))
+        
         print(f"Успешно скачан файл: {target_filename}")
+        
     except Exception as e:
         print(f"!!! Произошла ошибка при скачивании данных за {target_date}: {e}")
-        # Не удаляем файл, если он был частично создан, чтобы не пытаться скачать его снова
-        # при следующей ошибке. Можно добавить логику для удаления неполных файлов.
+        # Если произошла ошибка, мы не создаем пустой файл, 
+        # чтобы скрипт попробовал скачать его снова при следующем запуске.
 
 def main():
     """
     Главная функция. Проверяет последние N дней и докачивает недостающие данные.
     """
     print("--- Запуск ежедневного скрипта обновления данных ERA5 ---")
-    # Создаем директорию, если ее нет
     os.makedirs(OUTPUT_DIR, exist_ok=True)
     
     today = date.today()
     
-    # Цикл для проверки пропущенных дней.
-    # Начинаем с самого "свежего" возможного дня и идем в прошлое.
+    # Проверяем диапазон дат, начиная с самой свежей возможной и двигаясь в прошлое
     for i in range(DATA_LAG_DAYS, DAYS_TO_CHECK_BACK + 1):
-        # Дата, которую мы хотим проверить и потенциально скачать
         date_to_process = today - timedelta(days=i)
         
         print(f"\nПроверка даты: {date_to_process}...")
