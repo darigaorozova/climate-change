@@ -99,27 +99,4 @@ class ClimatePredictor:
         
         return predictions
     
-    def predict_co2(self, df, years_ahead=5):
-        """Предсказание CO2 на несколько лет вперед"""
-        if self.co2_model is None:
-            model_path = os.path.join(MODELS_DIR, 'co2_model.pkl')
-            if os.path.exists(model_path):
-                with open(model_path, 'rb') as f:
-                    self.co2_model = pickle.load(f)
-            else:
-                return None
-        
-        predictions = []
-        last_data = df.tail(1).iloc[0]
-        
-        for i in range(1, years_ahead + 1):
-            year = df['Year'].max() + i
-            co2_lag1 = last_data['co2_level'] if i == 1 else predictions[-1]
-            co2_lag2 = last_data['co2_level'] if i <= 2 else predictions[-2]
-            
-            X = np.array([[year, co2_lag1, co2_lag2]])
-            pred = self.co2_model.predict(X)[0]
-            predictions.append(pred)
-        
-        return predictions
 
