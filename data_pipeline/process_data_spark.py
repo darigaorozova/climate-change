@@ -1,6 +1,7 @@
 import os
 import sys
 from datetime import date, timedelta
+import pandas as pd 
 import findspark
 
 findspark.init()
@@ -45,6 +46,10 @@ def process_and_load():
         .master("local[*]") \
         .getOrCreate()
     
+    # === ВАЖНОЕ ИСПРАВЛЕНИЕ 1: Работаем строго в UTC ===
+    # Это уберет сдвиги на 1 час и прыжки дат
+    spark.conf.set("spark.sql.session.timeZone", "UTC")
+
     spark.sparkContext.setLogLevel("WARN")
 
     try:
@@ -85,12 +90,13 @@ def process_and_load():
         # A. DIM_TIME (Измерение времени)
         dim_time_df = processed_df.select(
             col("time_id"),
-            col("time").alias("timestamp"),
+            date_format(col("time"), "yyyy-MM-dd HH:mm:ss").alias("timestamp"), # <-- Строка вместо Timestamp
             year(col("time")).alias("year"),
             month(col("time")).alias("month"),
             dayofmonth(col("time")).alias("day"),
             hour(col("time")).alias("hour"),
-            dayofweek(col("time")).alias("day_of_week"),
+            # Формула перевода: Spark(1=Sun) -> ISO(7=Sun)
+            ((dayofweek(col("time")) + 5) % 7 + 1).alias("day_of_week"),
             quarter(col("time")).alias("quarter")
         ).distinct()
 
@@ -120,7 +126,16 @@ def process_and_load():
 
         # Загрузка DIM_TIME
         print(f"Загрузка dim_time ({dim_time_df.count()} записей)...")
-        client.execute('INSERT INTO weather_db.dim_time VALUES', dim_time_df.toPandas().to_dict('records'))
+
+        # Конвертируем в локальный Pandas DataFrame
+        pdf_dim_time = dim_time_df.toPandas()
+        
+        # --- ФИКС ОШИБКИ 'str has no attribute tzinfo' ---
+        # Превращаем строковую колонку обратно в datetime, но БЕЗ часового пояса (naive).
+        # Это удовлетворяет драйвер (он видит datetime) и сохраняет значение 00:00:00.
+        pdf_dim_time['timestamp'] = pd.to_datetime(pdf_dim_time['timestamp'])
+
+        client.execute('INSERT INTO weather_db.dim_time VALUES', pdf_dim_time.to_dict('records'))
 
         # Загрузка FACT_WEATHER
         print(f"Загрузка fact_weather ({fact_df.count()} записей)...")

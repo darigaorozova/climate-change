@@ -8,8 +8,8 @@ import shutil
 
 # --- КОНФИГУРАЦИЯ ---
 LAG_DAYS = 5 
-target_date = date.today() - timedelta(days=LAG_DAYS)
-# target_date = date(2025, 12, 1) 
+# target_date = date.today() - timedelta(days=LAG_DAYS)
+target_date = date(2025, 12, 1) 
 
 
 year_str = target_date.strftime("%Y")
