@@ -27,7 +27,7 @@ def create_db_structure():
         client.execute('''
             CREATE TABLE dim_time (
                 time_id Int64,          
-                timestamp DateTime,
+                timestamp DateTime('UTC'),
                 year UInt16,
                 month UInt8,
                 day UInt8,
