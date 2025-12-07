@@ -12,7 +12,7 @@ from datetime import datetime
 import plotly.graph_objs as go
 import plotly.express as px
 from plotly.utils import PlotlyJSONEncoder
-from ml_models.predictions import predict_temperature, predict_co2, generate_predictions
+from ml_models.predictions import predict_temperature
 
 # Импортируем модули проекта
 import sys
