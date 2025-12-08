@@ -34,7 +34,7 @@ wheels/
 raw_data*
 
 # Models
-models/*.pkl
+ml_models/*.pkl
 !models/.gitkeep
 
 # Static files

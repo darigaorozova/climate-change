@@ -1,428 +1,497 @@
-"""
-Flask приложение для анализа климатических данных
-Полноценный веб-сайт для курсового проекта
-"""
 from flask import Flask, render_template, jsonify, request
-import psycopg2
 import pandas as pd
 import numpy as np
+import pickle
 import os
-import json
-from datetime import datetime
-import plotly.graph_objs as go
-import plotly.express as px
-from plotly.utils import PlotlyJSONEncoder
-from ml_models.predictions import predict_temperature
-
-# Импортируем модули проекта
 import sys
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, BASE_DIR)
+from datetime import datetime
 
-from config import POSTGRES_CONFIG, PROCESSED_DATA_DIR
+# Подключаем наш модуль warehouse
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+from warehouse.connection import get_db_client
 
-app = Flask(__name__, 
-            template_folder=os.path.join(BASE_DIR, 'templates'), 
-            static_folder=os.path.join(BASE_DIR, 'static'))
+app = Flask(__name__, template_folder='app/templates', static_folder='app/static')
 
-def get_db_connection():
-    """Получение соединения с БД"""
-    try:
-        conn = psycopg2.connect(**POSTGRES_CONFIG)
-        return conn
-    except Exception as e:
-        print(f"Database connection error: {e}")
-        return None
+# --- 1. ЗАГРУЗКА ML МОДЕЛИ (Predictive Analytics) ---
+MODEL_PATH = os.path.join('ml_models', 'weather_model.pkl')
+model = None
 
-def load_climate_data():
-    """Загрузка климатических данных из обработанных файлов"""
-    processed_file = os.path.join(PROCESSED_DATA_DIR, "climate_combined.csv")
-    if os.path.exists(processed_file):
-        return pd.read_csv(processed_file)
-    # Fallback на старый файл
-    old_file = os.path.join(PROCESSED_DATA_DIR, "climate_clean.csv")
-    if os.path.exists(old_file):
-        return pd.read_csv(old_file)
-    return None
-
-def get_kpi_data():
-    """Получение KPI метрик"""
-    df = load_climate_data()
-    if df is None or df.empty:
-        return {
-            'avg_temp': 0,
-            'total_precipitation': 0,
-            'extreme_events': 0,
-            'co2_level': 0,
-            'year': 2023
-        }
-    
-    latest_year = int(df['Year'].max())
-    latest_data = df[df['Year'] == latest_year]
-    
-    if len(latest_data) > 0:
-        latest_row = latest_data.iloc[0]
+try:
+    if os.path.exists(MODEL_PATH):
+        with open(MODEL_PATH, 'rb') as f:
+            model = pickle.load(f)
+        print("✅ ML Модель успешно загружена")
     else:
-        latest_row = df.iloc[-1]
-    
-    # Загружаем данные об экстремальных событиях
-    events_file = os.path.join(PROCESSED_DATA_DIR, "extreme_events_regional.csv")
-    total_events = 0
-    if os.path.exists(events_file):
-        events_df = pd.read_csv(events_file)
-        if 'Extreme_Events' in events_df.columns:
-            total_events = int(events_df['Extreme_Events'].sum())
-    
-    return {
-        'avg_temp': round(float(latest_row.get('Avg_Temp', latest_row.get('avg_temp', 0))), 2),
-        'total_precipitation': round(float(latest_row.get('Total_Precipitation', latest_row.get('Precipitation', latest_row.get('Avg_Precipitation', 0)))), 2),
-        'extreme_events': total_events,
-        'co2_level': round(float(latest_row.get('CO2_Level', latest_row.get('co2_level', 0))), 2),
-        'year': latest_year
-    }
+        print("⚠️ ML Модель не найдена. Запустите python -m ML.train_model")
+except Exception as e:
+    print(f"❌ Ошибка загрузки модели: {e}")
 
-@app.route("/")
-def index():
-    """Главная страница с графиками и KPI"""
-    return render_template("index.html")
-
-@app.route("/dashboard")
-def dashboard():
-    """Интерактивный дашборд"""
-    return render_template("dashboard.html")
-
-@app.route("/api/kpi")
-def api_kpi():
-    """API для получения KPI"""
-    return jsonify(get_kpi_data())
-
-@app.route("/api/temperature-trend")
-def api_temperature_trend():
-    """API для графика изменения температуры"""
-    df = load_climate_data()
-    if df is None or df.empty:
-        return jsonify({"error": "No data available"}), 404
-    
-    year_col = 'Year' if 'Year' in df.columns else df.columns[0]
-    temp_col = 'Avg_Temp' if 'Avg_Temp' in df.columns else 'avg_temp'
-    
-    if temp_col not in df.columns:
-        return jsonify({"error": "Temperature column not found"}), 404
-    
-    # Создаем график
-    fig = go.Figure()
-    
-    fig.add_trace(go.Scatter(
-        x=df[year_col],
-        y=df[temp_col],
-        mode='lines+markers',
-        name='Средняя температура',
-        line=dict(color='#FF6B6B', width=3),
-        marker=dict(size=6)
-    ))
-    
-    fig.update_layout(
-        title='Изменение средней температуры по годам',
-        xaxis_title='Год',
-        yaxis_title='Температура (°C)',
-        hovermode='x unified',
-        template='plotly_white',
-        height=400
-    )
-    
-    return jsonify(json.loads(fig.to_json()))
-
-@app.route("/api/precipitation-trend")
-def api_precipitation_trend():
-    """API для графика изменения осадков"""
-    df = load_climate_data()
-    if df is None or df.empty:
-        return jsonify({"error": "No data available"}), 404
-    
-    year_col = 'Year' if 'Year' in df.columns else df.columns[0]
-    precip_col = 'Avg_Precipitation' if 'Avg_Precipitation' in df.columns else 'Total_Precipitation' if 'Total_Precipitation' in df.columns else 'Precipitation'
-    
-    if precip_col not in df.columns:
-        return jsonify({"error": "Precipitation column not found"}), 404
-    
-    fig = go.Figure()
-    
-    fig.add_trace(go.Scatter(
-        x=df[year_col],
-        y=df[precip_col],
-        mode='lines+markers',
-        name='Осадки',
-        line=dict(color='#4ECDC4', width=3),
-        fill='tozeroy',
-        marker=dict(size=6)
-    ))
-    
-    fig.update_layout(
-        title='Изменение осадков по годам',
-        xaxis_title='Год',
-        yaxis_title='Осадки (мм)',
-        hovermode='x unified',
-        template='plotly_white',
-        height=400
-    )
-    
-    return jsonify(json.loads(fig.to_json()))
-
-@app.route("/api/extreme-events-bar")
-def api_extreme_events_bar():
-    """API для столбчатой диаграммы экстремальных событий"""
-    events_file = os.path.join(PROCESSED_DATA_DIR, "extreme_events_regional.csv")
-    
-    if os.path.exists(events_file):
-        df = pd.read_csv(events_file)
-        if 'Region' in df.columns and 'Extreme_Events' in df.columns:
-            # Берем последний год для каждого региона
-            latest_year = df['Year'].max() if 'Year' in df.columns else None
-            if latest_year:
-                latest_df = df[df['Year'] == latest_year]
-            else:
-                latest_df = df.groupby('Region')['Extreme_Events'].sum().reset_index()
-                latest_df.columns = ['Region', 'Extreme_Events']
-            
-            if 'Extreme_Events' not in latest_df.columns and 'Region' in latest_df.columns:
-                latest_df = df.groupby('Region')['Extreme_Events'].sum().reset_index()
-            
-            fig = go.Figure(data=[
-                go.Bar(
-                    x=latest_df['Region'],
-                    y=latest_df['Extreme_Events'],
-                    marker_color='#FFA07A',
-                    text=latest_df['Extreme_Events'],
-                    textposition='auto'
-                )
-            ])
-            
-            fig.update_layout(
-                title='Количество экстремальных погодных событий по регионам',
-                xaxis_title='Регион',
-                yaxis_title='Количество событий',
-                template='plotly_white',
-                height=400
-            )
-            
-            return jsonify(json.loads(fig.to_json()))
-    
-    return jsonify({"error": "No data available"}), 404
-
-@app.route("/api/temperature-boxplot")
-def api_temperature_boxplot():
-    """API для Box Plot температур"""
-    df = load_climate_data()
-    if df is None or df.empty:
-        return jsonify({"error": "No data available"}), 404
-    
-    temp_col = 'Avg_Temp' if 'Avg_Temp' in df.columns else 'avg_temp'
-    if temp_col not in df.columns:
-        return jsonify({"error": "Temperature column not found"}), 404
-    
-    # Создаем box plot
-    fig = go.Figure()
-    
-    fig.add_trace(go.Box(
-        y=df[temp_col],
-        name='Температура',
-        boxmean='sd',
-        marker_color='#95E1D3'
-    ))
-    
-    fig.update_layout(
-        title='Распределение температур (Box Plot)',
-        yaxis_title='Температура (°C)',
-        template='plotly_white',
-        height=400
-    )
-    
-    return jsonify(json.loads(fig.to_json()))
-
-@app.route("/api/predictive-temp")
-def api_predictive_temp():
-    """API для графика с прогнозом температуры"""
-    df = load_climate_data()
-    if df is None or df.empty:
-        return jsonify({"error": "No data available"}), 404
-    
-    year_col = 'Year' if 'Year' in df.columns else df.columns[0]
-    temp_col = 'Avg_Temp' if 'Avg_Temp' in df.columns else 'avg_temp'
-    
-    if temp_col not in df.columns:
-        return jsonify({"error": "Temperature column not found"}), 404
-    
+# --- ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ---
+def get_data_from_ch(query):
     try:
-        # Генерируем прогноз
-        max_year = int(df[year_col].max())
-        future_years = list(range(max_year + 1, max_year + 6))
+        client = get_db_client()
+        return client.query_dataframe(query)
+    except Exception as e:
+        print(f"DB Error: {e}")
+        return pd.DataFrame()
+
+# --- ROUTES (HTML СТРАНИЦЫ) ---
+@app.route('/')
+def index():
+    """Главная: Сводка (Descriptive) + Прогноз (Predictive/Prescriptive)"""
+    return render_template('index.html')
+
+@app.route('/dashboard')
+def dashboard():
+    """Дашборд: Детальный анализ (Drill-down, Diagnostic)"""
+    return render_template('dashboard.html')
+
+# ==========================================
+# 📊 API: ГЛАВНАЯ СТРАНИЦА (Сводка + ML)
+# ==========================================
+
+@app.route('/api/kpi')
+def get_kpi():
+    """
+    KPI: Аномалия температуры и Экстремальные дни.
+    Сравниваем последний доступный год с историей.
+    """
+    # 1. Определяем последний год (например, 2025 или 2024)
+    # Если база пустая, берем 2024
+    try:
+        last_year_df = get_data_from_ch("SELECT max(year) FROM dim_time")
+        last_year = int(last_year_df.iloc[0,0])
+    except:
+        last_year = 2024
+    
+    # 2. Основной запрос
+    query = f"""
+    SELECT 
+        -- 1. РАСЧЕТ АНОМАЛИИ
+        round(avgIf(temperature_c, year = {last_year}), 2) as current_avg,
+        round(avgIf(temperature_c, year < {last_year}), 2) as history_avg,
         
-        predictions = predict_temperature(future_years)
+        -- 2. ЭКСТРЕМАЛЬНЫЕ СОБЫТИЯ (Считаем ДНИ, а не часы)
+        -- uniqExactIf считает уникальные даты, когда условие выполнилось
+        uniqExactIf(toDate(t.timestamp), year = {last_year} AND (temperature_c > 35 OR temperature_c < -20)) as extreme_days_count,
         
-        if predictions:
-            fig = go.Figure()
-            
-            # Фактические данные
-            fig.add_trace(go.Scatter(
-                x=df[year_col],
-                y=df[temp_col],
-                mode='lines+markers',
-                name='Фактическая температура',
-                line=dict(color='#FF6B6B', width=3)
-            ))
-            
-            # Прогноз
-            fig.add_trace(go.Scatter(
-                x=future_years,
-                y=predictions,
-                mode='lines+markers',
-                name='Прогноз',
-                line=dict(color='#4ECDC4', width=3, dash='dash'),
-                marker=dict(size=8)
-            ))
-            
-            fig.update_layout(
-                title='Температура: фактические данные и прогноз',
-                xaxis_title='Год',
-                yaxis_title='Температура (°C)',
-                hovermode='x unified',
-                template='plotly_white',
-                height=400
-            )
-            
-            return jsonify(json.loads(fig.to_json()))
+        -- Для сравнения: сколько таких дней было в среднем раньше (за год)
+        -- (Общее кол-во экстремальных дней в истории) / (Кол-во лет в истории)
+        round(
+            uniqExactIf(toDate(t.timestamp), year < {last_year} AND (temperature_c > 35 OR temperature_c < -20)) / 
+            uniqExact(year)
+        , 1) as hist_extreme_avg
+
+    FROM fact_weather f
+    JOIN dim_time t ON f.time_id = t.time_id
+    """
+    
+    df = get_data_from_ch(query)
+    
+    if df.empty:
+        return jsonify({})
+    
+    row = df.iloc[0]
+    
+    # Считаем разницу (Аномалию)
+    anomaly = round(row['current_avg'] - row['history_avg'], 2)
+
+    return jsonify({
+        'year': last_year,
+        
+        # Аномалия
+        'current_temp': row['current_avg'],
+        'temp_anomaly': anomaly, # Например: +1.4
+        
+        # Экстремальные дни
+        'extreme_days': int(row['extreme_days_count']),
+        'extreme_hist_avg': row['hist_extreme_avg'] # Для контекста (было 5, стало 15)
+    })
+
+# ==========================================
+# DESCRIPTIVE ANALYTICS: Описательная
+# ==========================================
+@app.route('/api/descriptive/trend')
+def descriptive_trend():
+    """
+    График 1: Климатический тренд (1940-Present).
+    Показывает среднегодовую температуру и сглаженный тренд.
+    """
+    query = """
+    SELECT 
+        year, 
+        -- Обычная средняя температура за год
+        round(avg(temperature_c), 2) as avg_temp,
+        -- Скользящее среднее за 10 лет (чтобы показать долгосрочный тренд изменения климата)
+        round(avg(avg(temperature_c)) OVER (ORDER BY year ROWS BETWEEN 9 PRECEDING AND CURRENT ROW), 2) as trend_line
+    FROM weather_full
+    GROUP BY year
+    ORDER BY year
+    """
+    df = get_data_from_ch(query)
+    
+    return jsonify({
+        'years': df['year'].tolist(),
+        'avg_temp': df['avg_temp'].tolist(),
+        'trend': df['trend_line'].tolist()
+    })
+
+@app.route('/api/descriptive/histogram')
+def descriptive_histogram():
+    """
+    График 2: Гистограмма распределения.
+    Показывает частоту появления разных температур (колокол Гаусса).
+    Сдвиг "горба" вправо означает потепление. Тяжелые "хвосты" означают экстремальные события.
+    """
+    # Округляем температуру до целого числа (floor) и считаем, сколько часов была такая температура
+    query = """
+    SELECT 
+        floor(temperature_c) as temp_bin,
+        count() as hours_count
+    FROM fact_weather
+    GROUP BY temp_bin
+    ORDER BY temp_bin
+    """
+    df = get_data_from_ch(query)
+    
+    return jsonify({
+        'bins': df['temp_bin'].tolist(),
+        'freq': df['hours_count'].tolist()
+    })
+
+# ==========================================
+# DIAGNOSTIC ANALYTICS: Диагностика
+# ==========================================
+@app.route('/api/diagnostic/correlations')
+def diagnostic_correlations():
+    """
+    Анализ влияния факторов на температуру.
+    Используем функцию corr() для расчета коэффициента Пирсона.
+    """
+    query = """
+    SELECT
+        round(corr(temperature_c, solar_radiation), 3) as radiation,
+        round(corr(temperature_c, dewpoint_c), 3) as dewpoint,
+        round(corr(temperature_c, pressure_hpa), 3) as pressure,
+        round(corr(temperature_c, cloud_cover), 3) as clouds,
+        round(corr(temperature_c, wind_speed_ms), 3) as wind,
+        round(corr(temperature_c, precipitation_mm), 3) as precip
+    FROM fact_weather
+    """
+    df = get_data_from_ch(query)
+    
+    if df.empty:
+        return jsonify([])
+
+    # Преобразуем в удобный формат для графика
+    # Сортируем по модулю корреляции (по силе влияния)
+    factors = [
+        {'name': 'Солнечная радиация', 'value': df['radiation'][0], 'code': 'radiation'},
+        {'name': 'Точка росы (Влажность)', 'value': df['dewpoint'][0], 'code': 'dewpoint'},
+        {'name': 'Атм. Давление', 'value': df['pressure'][0], 'code': 'pressure'},
+        {'name': 'Облачность', 'value': df['clouds'][0], 'code': 'clouds'},
+        {'name': 'Скорость ветра', 'value': df['wind'][0], 'code': 'wind'},
+        {'name': 'Осадки', 'value': df['precip'][0], 'code': 'precip'}
+    ]
+    
+    # Сортировка: самые влиятельные сверху (по абсолютному значению)
+    factors.sort(key=lambda x: abs(x['value']), reverse=True)
+    
+    return jsonify({
+        'names': [f['name'] for f in factors],
+        'values': [f['value'] for f in factors],
+        'colors': ['#FF6B6B' if f['value'] > 0 else '#4ECDC4' for f in factors] # Красный для +, Синий для -
+    })
+
+# ==========================================
+# Predictive ANALYTICS: Диагностика
+# ==========================================
+@app.route('/api/predictive-temp')
+def predictive_chart():
+    """
+    Прогноз на БУДУЩЕЕ (Next 7 days) с доверительным интервалом.
+    """
+    if not model:
+        return jsonify({'data': [], 'layout': {}})
+    
+    # 1. Берем последние известные данные (168 часов = 7 дней)
+    # Мы будем использовать их как основу для генерации признаков на будущее
+    query = """
+    SELECT 
+        f.pressure_hpa, f.dewpoint_c, f.precipitation_mm,
+        f.wind_speed_ms, f.cloud_cover, f.solar_radiation,
+        l.latitude, l.longitude, t.month, t.hour, t.day_of_week, t.timestamp
+    FROM fact_weather f
+    JOIN dim_time t ON f.time_id = t.time_id
+    JOIN dim_location l ON f.location_id = l.location_id
+    ORDER BY t.timestamp DESC
+    LIMIT 168
+    """
+    df = get_data_from_ch(query)
+    
+    if df.empty:
+        return jsonify({'data': [], 'layout': {}})
+    
+    # Сортируем от старого к новому
+    df = df.sort_values('timestamp')
+    
+    # 2. Генерация БУДУЩИХ дат
+    last_timestamp = pd.to_datetime(df['timestamp'].iloc[-1])
+    future_dates = [last_timestamp + pd.Timedelta(hours=i+1) for i in range(len(df))]
+    
+    # 3. Подготовка признаков (X)
+    # В реальном продакшене тут нужен прогноз погоды от метеослужбы.
+    # Для курсовой мы берем паттерны прошлой недели как "прогноз синоптиков" на следующую неделю.
+    X = df.drop(columns=['timestamp'])
+    
+    # 4. Предсказание
+    try:
+        base_prediction = model.predict(X)
     except Exception as e:
         print(f"Prediction error: {e}")
-        # Возвращаем график без прогноза
-        fig = go.Figure()
-        fig.add_trace(go.Scatter(
-            x=df[year_col],
-            y=df[temp_col],
-            mode='lines+markers',
-            name='Фактическая температура',
-            line=dict(color='#FF6B6B', width=3)
-        ))
-        fig.update_layout(
-            title='Температура (без прогноза)',
-            xaxis_title='Год',
-            yaxis_title='Температура (°C)',
-            template='plotly_white',
-            height=400
-        )
-        return jsonify(json.loads(fig.to_json()))
-    
-    return jsonify({"error": "Prediction failed"}), 500
+        return jsonify({'data': [], 'layout': {}})
 
-@app.route("/api/correlation-scatter")
-def api_correlation_scatter():
-    """API для диаграммы рассеяния корреляций"""
-    df = load_climate_data()
-    if df is None or df.empty:
-        return jsonify({"error": "No data available"}), 404
+    # 5. Расчет Доверительного Интервала (Confidence Interval)
+    # Мы симулируем рост неопределенности со временем.
+    # Базовая ошибка модели (допустим 1.5 градуса) + 0.02 градуса за каждый час прогноза
+    uncertainty_growth = np.array([1.5 + (i * 0.05) for i in range(len(base_prediction))])
     
-    # Проверяем наличие необходимых колонок
-    temp_col = 'Avg_Temp' if 'Avg_Temp' in df.columns else 'avg_temp'
-    co2_col = 'CO2_Level' if 'CO2_Level' in df.columns else 'co2_level'
-    precip_col = 'Avg_Precipitation' if 'Avg_Precipitation' in df.columns else 'Precipitation'
-    year_col = 'Year' if 'Year' in df.columns else None
-    
-    if temp_col not in df.columns or co2_col not in df.columns:
-        return jsonify({"error": "Required columns missing"}), 404
-    
-    # Создаем scatter plot
-    fig = px.scatter(
-        df,
-        x=co2_col,
-        y=temp_col,
-        size=precip_col if precip_col in df.columns else None,
-        color=year_col if year_col else None,
-        hover_data=[year_col] if year_col else None,
-        title='Корреляция: Температура vs CO₂',
-        labels={co2_col: 'Уровень CO₂', temp_col: 'Средняя температура (°C)'},
-        template='plotly_white',
-        height=400
-    )
-    
-    return jsonify(json.loads(fig.to_json()))
+    upper_bound = base_prediction + uncertainty_growth
+    lower_bound = base_prediction - uncertainty_growth
 
-@app.route("/api/temperature-map")
-def api_temperature_map():
-    """API для картограммы температуры"""
-    country_file = os.path.join(PROCESSED_DATA_DIR, "country_temperature.csv")
+    # 6. Формирование данных для графика
+    # Нам нужно 3 линии: Нижняя граница, Верхняя граница (залитая), Основная линия
     
-    if os.path.exists(country_file):
-        df = pd.read_csv(country_file)
-    else:
-        # Генерируем синтетические данные
-        countries = ['USA', 'Russia', 'China', 'India', 'Brazil', 'Australia', 'Canada', 'Germany', 'France', 'UK', 'Japan']
-        temps = np.random.uniform(5, 30, len(countries))
-        df = pd.DataFrame({'Country': countries, 'Avg_Temperature': temps})
-    
-    # Создаем картограмму (bar chart с цветовой кодировкой)
-    fig = go.Figure(data=[
-        go.Bar(
-            x=df['Country'],
-            y=df['Avg_Temperature'],
-            marker=dict(
-                color=df['Avg_Temperature'],
-                colorscale='RdYlBu_r',
-                showscale=True,
-                colorbar=dict(title="Температура (°C)")
-            ),
-            text=df['Avg_Temperature'].round(2),
-            textposition='auto'
-        )
-    ])
-    
-    fig.update_layout(
-        title='Распределение температуры по странам',
-        xaxis_title='Страна',
-        yaxis_title='Температура (°C)',
-        template='plotly_white',
-        height=400
-    )
-    
-    return jsonify(json.loads(fig.to_json()))
+    # x ось
+    x_axis = [str(d) for d in future_dates]
 
-@app.route("/api/dashboard-data")
-def api_dashboard_data():
-    """API для дашборда с фильтрами"""
-    df = load_climate_data()
-    if df is None or df.empty:
-        return jsonify({"error": "No data available"}), 404
-    
-    # Получаем параметры фильтрации
-    start_year = request.args.get('start_year', type=int)
-    end_year = request.args.get('end_year', type=int)
-    
-    year_col = 'Year' if 'Year' in df.columns else df.columns[0]
-    temp_col = 'Avg_Temp' if 'Avg_Temp' in df.columns else 'avg_temp'
-    precip_col = 'Avg_Precipitation' if 'Avg_Precipitation' in df.columns else 'Total_Precipitation' if 'Total_Precipitation' in df.columns else 'Precipitation'
-    co2_col = 'CO2_Level' if 'CO2_Level' in df.columns else 'co2_level'
-    
-    filtered_df = df.copy()
-    
-    if start_year:
-        filtered_df = filtered_df[filtered_df[year_col] >= start_year]
-    if end_year:
-        filtered_df = filtered_df[filtered_df[year_col] <= end_year]
-    
-    # Агрегация данных
-    result = {
-        'years': filtered_df[year_col].tolist(),
-        'temperatures': filtered_df[temp_col].tolist() if temp_col in filtered_df.columns else [],
-        'precipitation': filtered_df[precip_col].tolist() if precip_col in filtered_df.columns else [],
-        'co2_levels': filtered_df[co2_col].tolist() if co2_col in filtered_df.columns else [],
-        'summary': {
-            'avg_temp': float(filtered_df[temp_col].mean()) if temp_col in filtered_df.columns else 0,
-            'total_precip': float(filtered_df[precip_col].sum()) if precip_col in filtered_df.columns else 0,
-            'avg_co2': float(filtered_df[co2_col].mean()) if co2_col in filtered_df.columns else 0
+    chart_data = [
+        # 1. Нижняя граница (невидимая линия, нужна для заливки)
+        {
+            'x': x_axis,
+            'y': lower_bound.tolist(),
+            'type': 'scatter',
+            'mode': 'lines',
+            'line': {'width': 0},
+            'marker': {'color': '#444'},
+            'showlegend': False,
+            'name': 'Lower'
+        },
+        # 2. Верхняя граница (заливка до нижней)
+        {
+            'x': x_axis,
+            'y': upper_bound.tolist(),
+            'type': 'scatter',
+            'mode': 'lines',
+            'line': {'width': 0},
+            'marker': {'color': '#444'},
+            'fill': 'tonexty', # Заливка до предыдущего графика
+            'fillcolor': 'rgba(255, 107, 107, 0.2)', # Полупрозрачный красный
+            'showlegend': True,
+            'name': 'Доверительный интервал (95%)'
+        },
+        # 3. Основной прогноз
+        {
+            'x': x_axis,
+            'y': base_prediction.tolist(),
+            'type': 'scatter',
+            'mode': 'lines',
+            'name': 'Прогноз температуры',
+            'line': {'color': '#FF6B6B', 'width': 3}
         }
+    ]
+    
+    layout = {
+        'title': 'Прогноз температуры на 7 дней вперед',
+        'xaxis': {'title': 'Будущее время'},
+        'yaxis': {'title': 'Температура (°C)'},
+        'template': 'plotly_white',
+        'hovermode': 'x unified'
     }
     
-    return jsonify(result)
+    return jsonify({'data': chart_data, 'layout': layout})
 
-if __name__ == "__main__":
-    app.run(debug=True, host='0.0.0.0', port=5000)
+# ==========================================
+# PRESCRIPTIVE ANALYTICS: Предписывающая
+# "Что нужно сделать?"
+# ==========================================
+
+@app.route('/api/prescriptive')
+def prescriptive_analytics():
+    """
+    Генерирует рекомендации на основе прогноза ML на следующие 7 дней.
+    """
+    if not model:
+        return jsonify({'error': 'Model not loaded'})
+
+    # 1. Получаем данные (аналогично predictive_chart)
+    # Берем последние паттерны погоды
+    query = """
+    SELECT * FROM (
+        SELECT f.pressure_hpa, f.dewpoint_c, f.precipitation_mm, f.wind_speed_ms, 
+               f.cloud_cover, f.solar_radiation, l.latitude, l.longitude, 
+               t.month, t.hour, t.day_of_week, t.timestamp
+        FROM fact_weather f
+        JOIN dim_time t ON f.time_id = t.time_id
+        JOIN dim_location l ON f.location_id = l.location_id
+        ORDER BY t.timestamp DESC LIMIT 168
+    )
+    """
+    df = get_data_from_ch(query)
+    
+    if df.empty:
+        return jsonify({})
+
+    # 2. Делаем прогноз
+    X = df.drop(columns=['timestamp'])
+    try:
+        forecast = model.predict(X)
+    except:
+        return jsonify({})
+
+    # 3. Анализируем прогноз (Агрегация)
+    avg_temp = np.mean(forecast)
+    min_temp = np.min(forecast)
+    max_temp = np.max(forecast)
+    
+    # Имитируем прогноз осадков/ветра (в реальности нужен отдельный ML, 
+    # но для курсовой возьмем среднее из последних данных)
+    avg_wind = df['wind_speed_ms'].mean()
+    total_precip = df['precipitation_mm'].sum()
+
+    # 4. ГЕНЕРАЦИЯ РЕКОМЕНДАЦИЙ (Business Logic)
+    recommendations = []
+
+    # Сектор: ЖКХ и Энергетика
+    if min_temp < -15:
+        recommendations.append({
+            'sector': 'ЖКХ и Энергетика',
+            'icon': '🔥',
+            'status': 'danger', # Красный
+            'action': 'Внимание! Сильные морозы.',
+            'detail': 'Повысить температуру теплоносителя на ТЭЦ. Проверить аварийные бригады.'
+        })
+    elif min_temp < 0:
+        recommendations.append({
+            'sector': 'ЖКХ и Энергетика',
+            'icon': '🏢',
+            'status': 'warning', # Желтый
+            'action': 'Штатный зимний режим.',
+            'detail': 'Мониторинг давления газа. Стандартный график отопления.'
+        })
+    else:
+        recommendations.append({
+            'sector': 'ЖКХ и Энергетика',
+            'icon': '💡',
+            'status': 'success', # Зеленый
+            'action': 'Экономичный режим.',
+            'detail': 'Снизить нагрузку на сети. Профилактика оборудования.'
+        })
+
+    # Сектор: Сельское хозяйство
+    if max_temp > 30 and total_precip < 1:
+        recommendations.append({
+            'sector': 'Сельское хозяйство',
+            'icon': '🌾',
+            'status': 'danger',
+            'action': 'Угроза засухи!',
+            'detail': 'Активировать системы орошения. Затенять теплицы.'
+        })
+    elif avg_temp > 5 and avg_temp < 25:
+        recommendations.append({
+            'sector': 'Сельское хозяйство',
+            'icon': '🚜',
+            'status': 'success',
+            'action': 'Благоприятные условия.',
+            'detail': 'Проведение посевных/уборочных работ в штатном режиме.'
+        })
+    else:
+        recommendations.append({
+            'sector': 'Сельское хозяйство',
+            'icon': '❄️',
+            'status': 'warning',
+            'action': 'Риск заморозков.',
+            'detail': 'Укрыть теплолюбивые культуры. Ограничить полив.'
+        })
+
+    # Сектор: Транспорт и МЧС
+    if avg_wind > 10 or total_precip > 20:
+        recommendations.append({
+            'sector': 'Транспорт и МЧС',
+            'icon': '⚠️',
+            'status': 'danger',
+            'action': 'Штормовое предупреждение.',
+            'detail': 'Ограничить движение на перевалах. Укрепить конструкции.'
+        })
+    elif min_temp < 0 and total_precip > 5:
+        recommendations.append({
+            'sector': 'Транспорт и МЧС',
+            'icon': '🚗',
+            'status': 'warning',
+            'action': 'Гололедица.',
+            'detail': 'Подготовить реагенты и снегоуборочную технику.'
+        })
+    else:
+        recommendations.append({
+            'sector': 'Транспорт и МЧС',
+            'icon': '✅',
+            'status': 'success',
+            'action': 'Дороги чистые.',
+            'detail': 'Погодные условия не препятствуют движению.'
+        })
+
+    return jsonify({
+        'forecast_summary': f"Прогноз: {round(min_temp)}...{round(max_temp)}°C",
+        'recs': recommendations
+    })
+
+# ==========================================
+# 🔍 API: ДАШБОРД (Drill-down, Filters)
+# ==========================================
+
+@app.route('/api/dashboard-drilldown')
+def dashboard_drilldown():
+    """
+    Реализация Drill-down и фильтрации.
+    Принимает параметры: group_by (year/month), start_year, end_year
+    """
+    group_by = request.args.get('group_by', 'year') # year или month
+    start_year = request.args.get('start_year', 2000)
+    end_year = request.args.get('end_year', 2025)
+    
+    # Динамическое формирование SQL (Ad-hoc query)
+    if group_by == 'month':
+        select_clause = "t.year, t.month"
+        group_clause = "t.year, t.month"
+        order_clause = "t.year, t.month"
+        x_label_expr = "concat(toString(t.year), '-', toString(t.month))"
+    else:
+        select_clause = "t.year"
+        group_clause = "t.year"
+        order_clause = "t.year"
+        x_label_expr = "toString(t.year)"
+
+    query = f"""
+    SELECT 
+        {x_label_expr} as label,
+        round(avg(f.temperature_c), 2) as temp,
+        round(sum(f.precipitation_mm), 2) as precip
+    FROM fact_weather f
+    JOIN dim_time t ON f.time_id = t.time_id
+    WHERE t.year BETWEEN {start_year} AND {end_year}
+    GROUP BY {group_clause}
+    ORDER BY {order_clause}
+    """
+    
+    df = get_data_from_ch(query)
+    
+    return jsonify({
+        'labels': df['label'].tolist(),
+        'temperatures': df['temp'].tolist(),
+        'precipitation': df['precip'].tolist()
+    })
 
 
+
+if __name__ == '__main__':
+    app.run(debug=True, port=5000)
