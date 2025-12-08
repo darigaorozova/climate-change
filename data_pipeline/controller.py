@@ -42,10 +42,6 @@ def setup_logger():
 logger = setup_logger()
 
 def run_module(module_name):
-    """
-    Запускает python модуль через subprocess.
-    Аналог команды: python -m ETL.daily_ingest
-    """
     logger.info(f"🚀 Запуск модуля: {module_name}...")
     
     try:
@@ -96,6 +92,11 @@ def main():
     # ШАГ 2: Spark Processing
     if not run_module("data_pipeline.process_data_spark"):
         logger.warning("⛔ Пайплайн остановлен на этапе Spark Processing.")
+        return
+    
+    # ШАГ 3: ML Retraining (Обучение модели)
+    if not run_module("ml_models.train_model"):
+        logger.warning("⛔ Пайплайн остановлен на этапе ML Training.")
         return
 
     logger.info("✨ ПАЙПЛАЙН УСПЕШНО ЗАВЕРШЕН")
