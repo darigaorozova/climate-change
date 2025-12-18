@@ -9,71 +9,90 @@
 <body>
     <nav class="navbar">
         <div class="container">
-            <h1>Climate Analytics</h1>
+            <h1>Climate Analytics: Кыргызстан</h1>
             <ul class="nav-links">
                 <li><a href="/">Сводка и Прогноз</a></li>
-                <li><a href="/dashboard" class="active">Детальный Дашборд</a></li>
+                <li><a href="/dashboard" class="active">Ad-hoc Аналитика</a></li>
             </ul>
         </div>
     </nav>
 
     <div class="container">
         <header class="page-header">
-            <h2>🔎 Диагностическая Аналитика (Drill-Down)</h2>
-            <p>Фильтрация, агрегация и детализация климатических данных.</p>
+            <h2>🔎 Конструктор отчетов (Ad-hoc)</h2>
+            <p>Гибкая настройка параметров, фильтров и агрегации данных.</p>
         </header>
 
         <!-- ПАНЕЛЬ УПРАВЛЕНИЯ -->
         <section class="filters-section">
-            <h3>🎛️ Параметры анализа</h3>
+            <div style="margin-bottom: 15px; font-weight: bold; color: #667eea;">⚙️ Настройки запроса:</div>
+            
             <div class="filter-controls">
+                <!-- 1. Период -->
                 <div class="filter-group">
-                    <label>Период (годы):</label>
-                    <div style="display: flex; align-items: center; gap: 10px;">
-                        <input type="number" id="start-year" value="2000" min="1940" max="2025" style="width: 80px;">
-                        <span>—</span>
-                        <input type="number" id="end-year" value="2024" min="1940" max="2025" style="width: 80px;">
+                    <label>Период:</label>
+                    <div style="display: flex; gap: 5px;">
+                        <input type="number" id="start-year" value="2020" min="2020" style="width: 70px;">
+                        -
+                        <input type="number" id="end-year" value="2025" min="2020" max="2025" style="width: 70px;">
                     </div>
                 </div>
                 
+                <!-- 2. Группировка -->
                 <div class="filter-group">
-                    <label>Уровень детализации (Aggregation):</label>
-                    <select id="group-by" style="padding: 8px; border-radius: 5px; border: 1px solid #ddd;">
-                        <option value="year">📅 По годам (Roll-up / Тренд)</option>
-                        <option value="month">📆 По месяцам (Drill-down / Сезонность)</option>
+                    <label>Группировка (Drill):</label>
+                    <select id="group-by">
+                        <option value="year">📅 Год</option>
+                        <option value="month">📆 Месяц</option>
+                        <option value="day">🗓️ День</option>
                     </select>
                 </div>
 
-                <button class="btn-primary" onclick="updateDashboard()">Применить фильтры</button>
+                <!-- 3. Агрегация -->
+                <div class="filter-group">
+                    <label>Агрегация:</label>
+                    <select id="agg-func">
+                        <option value="avg">AVG (Среднее)</option>
+                        <option value="max">MAX (Максимум)</option>
+                        <option value="min">MIN (Минимум)</option>
+                    </select>
+                </div>
+
+                <!-- 4. Метрики (Чекбоксы) -->
+                <div class="filter-group">
+                    <label>Метрики:</label>
+                    <div style="display: flex; gap: 15px; align-items: center; height: 38px;">
+                        <!-- Добавили стиль flex и gap для самого лейбла -->
+                        <label style="font-weight: normal; font-size: 0.9rem; display: flex; align-items: center; gap: 5px; cursor: pointer;">
+                            <input type="checkbox" id="show-temp" checked> Температура
+                        </label>
+                        <label style="font-weight: normal; font-size: 0.9rem; display: flex; align-items: center; gap: 5px; cursor: pointer;">
+                            <input type="checkbox" id="show-precip" checked> Осадки
+                        </label>
+                    </div>
+                </div>
+
+                <button class="btn-primary" onclick="updateDashboard()">Сформировать</button>
             </div>
         </section>
 
         <!-- ГРАФИКИ -->
-        <section class="dashboard-section">
-            <!-- График 1: Температура -->
-            <div class="chart-container">
-                <h4>🌡️ Динамика температуры</h4>
-                <!-- Класс full-height-chart обеспечивает высоту 500px -->
+        <section class="dashboard-section" id="charts-area">
+            <!-- Графики будут появляться/исчезать здесь через JS -->
+            
+            <div class="chart-container" id="container-temp">
+                <h4>🌡️ Температура</h4>
                 <div id="chart-temp" class="full-height-chart"></div>
             </div>
             
-            <!-- Отступ между графиками -->
-            <div style="height: 30px;"></div>
+            <div style="height: 30px;" id="spacer"></div>
 
-            <!-- График 2: Осадки -->
-            <div class="chart-container">
-                <h4>💧 Динамика осадков (Агрегация суммы)</h4>
-                <!-- Класс full-height-chart обеспечивает высоту 500px -->
+            <div class="chart-container" id="container-precip">
+                <h4>💧 Осадки</h4>
                 <div id="chart-precip" class="full-height-chart"></div>
             </div>
         </section>
     </div>
-
-    <footer class="footer">
-        <div class="container">
-            <p>&copy; 2024 Climate Analytics Project. Курсовая работа.</p>
-        </div>
-    </footer>
 
     <script src="{{ url_for('static', filename='js/dashboard.js') }}"></script>
 </body>
