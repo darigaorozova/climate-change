@@ -8,7 +8,7 @@ from sklearn.model_selection import train_test_split
 # Фикс импортов для запуска из корня
 sys.path.append(os.getcwd())
 try:
-    from ml_model.data_loader import load_data_from_clickhouse
+    from test_folder.data_loader_test2 import load_data_from_clickhouse
 except ImportError:
     from data_loader import load_data_from_clickhouse
 

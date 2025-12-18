@@ -139,16 +139,22 @@ def descriptive_trend():
 @app.route('/api/descriptive/histogram')
 def descriptive_histogram():
     """
-    График 2: Гистограмма распределения.
-    Показывает частоту появления разных температур (колокол Гаусса).
-    Сдвиг "горба" вправо означает потепление. Тяжелые "хвосты" означают экстремальные события.
+    График 2: Гистограмма распределения (ПО ДНЯМ).
+    Сначала считаем среднесуточную температуру, потом распределение.
     """
-    # Округляем температуру до целого числа (floor) и считаем, сколько часов была такая температура
     query = """
     SELECT 
-        floor(temperature_c) as temp_bin,
-        count() as hours_count
-    FROM fact_weather
+        floor(daily_avg) as temp_bin,
+        count() as days_count
+    FROM (
+        -- Внутренний запрос: Считаем среднюю температуру для каждого дня
+        SELECT 
+            toDate(t.timestamp) as date_val,
+            avg(f.temperature_c) as daily_avg
+        FROM fact_weather f
+        JOIN dim_time t ON f.time_id = t.time_id
+        GROUP BY date_val
+    )
     GROUP BY temp_bin
     ORDER BY temp_bin
     """
@@ -156,7 +162,7 @@ def descriptive_histogram():
     
     return jsonify({
         'bins': df['temp_bin'].tolist(),
-        'freq': df['hours_count'].tolist()
+        'freq': df['days_count'].tolist()
     })
 
 # ==========================================
@@ -313,169 +319,134 @@ def predictive_chart():
 
 # ==========================================
 # PRESCRIPTIVE ANALYTICS: Предписывающая
-# "Что нужно сделать?"
 # ==========================================
 
 @app.route('/api/prescriptive')
 def prescriptive_analytics():
-    """
-    Генерирует рекомендации на основе прогноза ML на следующие 7 дней.
-    """
     if not model:
+        print("❌ Model is None")
         return jsonify({'error': 'Model not loaded'})
 
-    # 1. Получаем данные (аналогично predictive_chart)
-    # Берем последние паттерны погоды
+    # 1. Получаем данные
+    # Важно: Порядок колонок должен СТРОГО совпадать с тем, как обучалась модель!
     query = """
-    SELECT * FROM (
-        SELECT f.pressure_hpa, f.dewpoint_c, f.precipitation_mm, f.wind_speed_ms, 
-               f.cloud_cover, f.solar_radiation, l.latitude, l.longitude, 
-               t.month, t.hour, t.day_of_week, t.timestamp
-        FROM fact_weather f
-        JOIN dim_time t ON f.time_id = t.time_id
-        JOIN dim_location l ON f.location_id = l.location_id
-        ORDER BY t.timestamp DESC LIMIT 168
-    )
+    SELECT 
+        f.pressure_hpa, f.dewpoint_c, f.precipitation_mm, f.wind_speed_ms, 
+        f.cloud_cover, f.solar_radiation, l.latitude, l.longitude, 
+        t.month, t.hour, t.day_of_week, t.timestamp
+    FROM fact_weather f
+    JOIN dim_time t ON f.time_id = t.time_id
+    JOIN dim_location l ON f.location_id = l.location_id
+    ORDER BY t.timestamp DESC 
+    LIMIT 168
     """
     df = get_data_from_ch(query)
     
     if df.empty:
-        return jsonify({})
+        print("❌ DataFrame is empty")
+        return jsonify({'error': 'No data in ClickHouse'})
 
-    # 2. Делаем прогноз
+    # 2. Подготовка данных
+    # Удаляем timestamp, так как модель на нем не училась
     X = df.drop(columns=['timestamp'])
+    
+    # 3. Предсказание с отловом ошибок
     try:
         forecast = model.predict(X)
-    except:
-        return jsonify({})
+    except Exception as e:
+        print(f"❌ Ошибка предсказания (Predict Error): {e}")
+        # Часто бывает разница в количестве фичей
+        print(f"Модель ждет {model.n_features_in_} колонок, пришло {X.shape[1]}")
+        print(f"Колонки пришедшие: {list(X.columns)}")
+        return jsonify({'error': str(e)})
 
-    # 3. Анализируем прогноз (Агрегация)
+    # 4. Анализ
     avg_temp = np.mean(forecast)
     min_temp = np.min(forecast)
     max_temp = np.max(forecast)
-    
-    # Имитируем прогноз осадков/ветра (в реальности нужен отдельный ML, 
-    # но для курсовой возьмем среднее из последних данных)
     avg_wind = df['wind_speed_ms'].mean()
     total_precip = df['precipitation_mm'].sum()
 
-    # 4. ГЕНЕРАЦИЯ РЕКОМЕНДАЦИЙ (Business Logic)
+    # 5. Рекомендации
     recommendations = []
 
-    # Сектор: ЖКХ и Энергетика
+    # ЖКХ
     if min_temp < -15:
-        recommendations.append({
-            'sector': 'ЖКХ и Энергетика',
-            'icon': '🔥',
-            'status': 'danger', # Красный
-            'action': 'Внимание! Сильные морозы.',
-            'detail': 'Повысить температуру теплоносителя на ТЭЦ. Проверить аварийные бригады.'
-        })
+        recommendations.append({'sector': 'ЖКХ и Энергетика', 'icon': '🔥', 'status': 'danger', 'action': 'Внимание! Сильные морозы.', 'detail': 'Повысить температуру теплоносителя.'})
     elif min_temp < 0:
-        recommendations.append({
-            'sector': 'ЖКХ и Энергетика',
-            'icon': '🏢',
-            'status': 'warning', # Желтый
-            'action': 'Штатный зимний режим.',
-            'detail': 'Мониторинг давления газа. Стандартный график отопления.'
-        })
+        recommendations.append({'sector': 'ЖКХ и Энергетика', 'icon': '🏢', 'status': 'warning', 'action': 'Штатный зимний режим.', 'detail': 'Мониторинг давления газа.'})
     else:
-        recommendations.append({
-            'sector': 'ЖКХ и Энергетика',
-            'icon': '💡',
-            'status': 'success', # Зеленый
-            'action': 'Экономичный режим.',
-            'detail': 'Снизить нагрузку на сети. Профилактика оборудования.'
-        })
+        recommendations.append({'sector': 'ЖКХ и Энергетика', 'icon': '💡', 'status': 'success', 'action': 'Экономичный режим.', 'detail': 'Снизить нагрузку на сети.'})
 
-    # Сектор: Сельское хозяйство
+    # Агро
     if max_temp > 30 and total_precip < 1:
-        recommendations.append({
-            'sector': 'Сельское хозяйство',
-            'icon': '🌾',
-            'status': 'danger',
-            'action': 'Угроза засухи!',
-            'detail': 'Активировать системы орошения. Затенять теплицы.'
-        })
+        recommendations.append({'sector': 'Сельское хозяйство', 'icon': '🌾', 'status': 'danger', 'action': 'Угроза засухи!', 'detail': 'Активировать полив.'})
     elif avg_temp > 5 and avg_temp < 25:
-        recommendations.append({
-            'sector': 'Сельское хозяйство',
-            'icon': '🚜',
-            'status': 'success',
-            'action': 'Благоприятные условия.',
-            'detail': 'Проведение посевных/уборочных работ в штатном режиме.'
-        })
+        recommendations.append({'sector': 'Сельское хозяйство', 'icon': '🚜', 'status': 'success', 'action': 'Благоприятные условия.', 'detail': 'Посевные работы в норме.'})
     else:
-        recommendations.append({
-            'sector': 'Сельское хозяйство',
-            'icon': '❄️',
-            'status': 'warning',
-            'action': 'Риск заморозков.',
-            'detail': 'Укрыть теплолюбивые культуры. Ограничить полив.'
-        })
+        recommendations.append({'sector': 'Сельское хозяйство', 'icon': '❄️', 'status': 'warning', 'action': 'Риск заморозков.', 'detail': 'Укрыть культуры.'})
 
-    # Сектор: Транспорт и МЧС
+    # Транспорт
     if avg_wind > 10 or total_precip > 20:
-        recommendations.append({
-            'sector': 'Транспорт и МЧС',
-            'icon': '⚠️',
-            'status': 'danger',
-            'action': 'Штормовое предупреждение.',
-            'detail': 'Ограничить движение на перевалах. Укрепить конструкции.'
-        })
+        recommendations.append({'sector': 'Транспорт и МЧС', 'icon': '⚠️', 'status': 'danger', 'action': 'Штормовое предупреждение.', 'detail': 'Ограничить движение.'})
     elif min_temp < 0 and total_precip > 5:
-        recommendations.append({
-            'sector': 'Транспорт и МЧС',
-            'icon': '🚗',
-            'status': 'warning',
-            'action': 'Гололедица.',
-            'detail': 'Подготовить реагенты и снегоуборочную технику.'
-        })
+        recommendations.append({'sector': 'Транспорт и МЧС', 'icon': '🚗', 'status': 'warning', 'action': 'Гололедица.', 'detail': 'Подготовить реагенты.'})
     else:
-        recommendations.append({
-            'sector': 'Транспорт и МЧС',
-            'icon': '✅',
-            'status': 'success',
-            'action': 'Дороги чистые.',
-            'detail': 'Погодные условия не препятствуют движению.'
-        })
+        recommendations.append({'sector': 'Транспорт и МЧС', 'icon': '✅', 'status': 'success', 'action': 'Дороги чистые.', 'detail': 'Штатный режим.'})
 
     return jsonify({
         'forecast_summary': f"Прогноз: {round(min_temp)}...{round(max_temp)}°C",
         'recs': recommendations
     })
-
 # ==========================================
 # 🔍 API: ДАШБОРД (Drill-down, Filters)
 # ==========================================
 
 @app.route('/api/dashboard-drilldown')
 def dashboard_drilldown():
-    """
-    Реализация Drill-down и фильтрации.
-    Принимает параметры: group_by (year/month), start_year, end_year
-    """
-    group_by = request.args.get('group_by', 'year') # year или month
+    # 1. Получаем параметры
+    group_by = request.args.get('group_by', 'year')
+    agg_func = request.args.get('agg_func', 'avg').lower()
     start_year = request.args.get('start_year', 2000)
     end_year = request.args.get('end_year', 2025)
     
-    # Динамическое формирование SQL (Ad-hoc query)
-    if group_by == 'month':
-        select_clause = "t.year, t.month"
+    # 2. Логика группировки (SQL)
+    # Мы сразу формируем выражение для SELECT и для GROUP BY
+    if group_by == 'day':
+        # Превращаем timestamp в дату, затем в строку для метки
+        x_label_expr = "toString(toDate(t.timestamp))"
+        group_clause = "toDate(t.timestamp)"
+        order_clause = "toDate(t.timestamp)"
+        
+    elif group_by == 'month':
+        # YYYY-MM
+        x_label_expr = "concat(toString(t.year), '-', lpad(toString(t.month), 2, '0'))"
         group_clause = "t.year, t.month"
         order_clause = "t.year, t.month"
-        x_label_expr = "concat(toString(t.year), '-', toString(t.month))"
-    else:
-        select_clause = "t.year"
+        
+    else: # year
+        x_label_expr = "toString(t.year)"
         group_clause = "t.year"
         order_clause = "t.year"
-        x_label_expr = "toString(t.year)"
 
+    # 3. Логика агрегации
+    if agg_func == 'max':
+        temp_expr = "round(max(f.temperature_c), 2)"
+        precip_expr = "round(max(f.precipitation_mm), 2)"
+    elif agg_func == 'min':
+        temp_expr = "round(min(f.temperature_c), 2)"
+        precip_expr = "round(min(f.precipitation_mm), 2)"
+    else:
+        temp_expr = "round(avg(f.temperature_c), 2)"
+        precip_expr = "round(sum(f.precipitation_mm), 2)"
+
+    # 4. Итоговый запрос
+    # Важно: x_label_expr сразу становится колонкой 'label'
     query = f"""
     SELECT 
         {x_label_expr} as label,
-        round(avg(f.temperature_c), 2) as temp,
-        round(sum(f.precipitation_mm), 2) as precip
+        {temp_expr} as temp,
+        {precip_expr} as precip
     FROM fact_weather f
     JOIN dim_time t ON f.time_id = t.time_id
     WHERE t.year BETWEEN {start_year} AND {end_year}
@@ -484,6 +455,10 @@ def dashboard_drilldown():
     """
     
     df = get_data_from_ch(query)
+    
+    # Защита от пустых данных
+    if df.empty:
+        return jsonify({'labels': [], 'temperatures': [], 'precipitation': []})
     
     return jsonify({
         'labels': df['label'].tolist(),

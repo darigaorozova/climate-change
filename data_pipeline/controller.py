@@ -2,7 +2,6 @@ import subprocess
 import sys
 import os
 import logging
-from datetime import datetime
 
 # --- КОНФИГУРАЦИЯ ---
 # Определяем корневую папку проекта (родительская папка для папки ETL)

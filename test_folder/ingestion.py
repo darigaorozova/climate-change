@@ -18,8 +18,8 @@ request = {
         "mean_surface_downward_short_wave_radiation_flux",
         "total_cloud_cover"
     ],
-    "year": ["2020"],
-    "month": ["12"],
+    "year": ["2021"],
+    "month": ["08"],
     "day": [f"{i:02d}" for i in range(1, 32)],
     "time": [f"{i:02d}:00" for i in range(24)],
     "data_format": "netcdf",
@@ -28,7 +28,7 @@ request = {
 }
 
 # Организация папок: raw_data / год_месяц
-output_dir = "raw_data/2020_12"
+output_dir = "raw_data/2021_08"
 os.makedirs(output_dir, exist_ok=True)
 zip_filename = os.path.join(output_dir, "data.zip")
 

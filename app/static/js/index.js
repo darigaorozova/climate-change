@@ -4,7 +4,7 @@ document.addEventListener('DOMContentLoaded', function() {
     loadHistogramChart();
     loadDiagnosticChart();
     loadPredictiveChart();
-    loadPrescriptiveAnalytics
+    loadPrescriptive();
 
 });
 
@@ -80,12 +80,12 @@ async function loadTrendChart() {
             y: data.trend,
             type: 'scatter',
             mode: 'lines',
-            name: 'Климатический тренд (10 лет)',
+            name: 'Климатический тренд (5 лет)',
             line: {color: '#FF5252', width: 4} // Ярко-красный
         };
 
         const layout = {
-            title: 'Изменение климата в Кыргызстане (1940-202X)',
+            title: 'Изменение климата в Кыргызстане (2020-2025)',
             xaxis: {title: 'Год'},
             yaxis: {title: 'Температура (°C)'},
             template: 'plotly_white',
@@ -102,7 +102,7 @@ async function loadTrendChart() {
     }
 }
 
-// --- ГРАФИК 2: ГИСТОГРАММА ---
+// --- ГРАФИК 2: ГИСТОГРАММА (Распределение по дням) ---
 async function loadHistogramChart() {
     try {
         const response = await fetch('/api/descriptive/histogram');
@@ -112,23 +112,33 @@ async function loadHistogramChart() {
             x: data.bins,
             y: data.freq,
             type: 'bar',
-            name: 'Часов наблюдения',
-            // Градиентная раскраска: Синий (холод) -> Красный (жара)
+            name: 'Дней',
             marker: {
                 color: data.bins,
-                colorscale: 'RdBu', 
-                reversescale: true, // Чтобы синий был слева (минус), красный справа (плюс)
-                colorbar: {title: 't°C'}
-            }
+                // Палитра Portland: Синий -> Зеленый -> Красный
+                colorscale: 'Portland', 
+                colorbar: {
+                    title: 't°C',
+                    titleside: 'right'
+                }
+            },
+            // Тултип: Температура: 15°C, Было дней: 45
+            hovertemplate: 'Среднесуточная t: %{x}°C<br>Количество дней: %{y}<extra></extra>'
         };
 
         const layout = {
-            title: 'Частота температурных режимов',
-            xaxis: {title: 'Температура (°C)'},
-            yaxis: { type: 'log', title: 'Частота (лог. шкала)' },
+            title: 'Климатический профиль (Распределение по дням)',
+            xaxis: {
+                title: 'Среднесуточная температура (°C) <br><span style="font-size:10px; color:blue">← Холод</span> | <span style="font-size:10px; color:red">Жара →</span>',
+                zeroline: true
+            },
+            yaxis: { 
+                // Убрали log шкалу, так как дней не так много (до 2000), линейная будет понятнее
+                title: 'Количество дней (за 2020-2025)' 
+            },
             template: 'plotly_white',
-            margin: {t: 50, l: 60, r: 20, b: 60},
-            height: 500, // Явно задаем высоту для JS
+            margin: {t: 50, l: 60, r: 20, b: 70},
+            height: 500,
             autosize: true
         };
 
@@ -212,19 +222,29 @@ async function loadPredictiveChart() {
     }
 }
 
-async function loadPrescriptiveAnalytics() {
+async function loadPrescriptive() {
+    const container = document.getElementById('prescriptive-container');
+    const badge = document.getElementById('forecast-summary-badge');
+    
     try {
         const res = await fetch('/api/prescriptive');
         const data = await res.json();
         
-        // 1. Обновляем бейдж с общим прогнозом
-        if (data.forecast_summary) {
-            document.getElementById('forecast-summary-badge').textContent = data.forecast_summary;
+        // Обработка ошибок с бэкенда
+        if (data.error) {
+            console.error("API Error:", data.error);
+            container.innerHTML = `<p style="color: red; text-align: center;">Ошибка модели: ${data.error}</p>`;
+            badge.textContent = "Ошибка";
+            return;
         }
 
-        // 2. Генерируем карточки
-        const container = document.getElementById('prescriptive-container');
-        container.innerHTML = ''; // Очистка
+        // Обновляем бейдж прогноза
+        if (data.forecast_summary) {
+            badge.textContent = data.forecast_summary;
+        }
+
+        // Очищаем и заполняем карточки
+        container.innerHTML = ''; 
 
         if (data.recs && data.recs.length > 0) {
             data.recs.forEach(rec => {
@@ -239,14 +259,14 @@ async function loadPrescriptiveAnalytics() {
                     <div class="rec-action">${rec.action}</div>
                     <div class="rec-detail">${rec.detail}</div>
                 `;
-                
                 container.appendChild(card);
             });
         } else {
-            container.innerHTML = '<p>Нет данных для рекомендаций.</p>';
+            container.innerHTML = '<p style="text-align: center;">Нет рекомендаций (пустые данные)</p>';
         }
 
     } catch (error) {
-        console.error("Ошибка рекомендаций:", error);
+        console.error("Ошибка JS:", error);
+        container.innerHTML = '<p style="text-align: center;">Ошибка соединения с сервером</p>';
     }
 }
